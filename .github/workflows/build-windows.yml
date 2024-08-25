@@ -55,6 +55,16 @@ jobs:
           ## Changes
           - Description of changes in this release.
 
+    - name: Compress AddressablesTools
+      if: github.event_name == 'release'
+      run: |
+        powershell Compress-Archive -Path AddressablesTools/bin/Release/net6.0/* -DestinationPath AddressablesTools-windows.zip
+
+    - name: Compress Example
+      if: github.event_name == 'release'
+      run: |
+        powershell Compress-Archive -Path Example/bin/Release/net6.0/* -DestinationPath Example-windows.zip
+
     - name: Upload AddressablesTools Release Asset
       if: github.event_name == 'release'
       uses: actions/upload-release-asset@v1
@@ -62,7 +72,7 @@ jobs:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       with:
         upload_url: ${{ steps.create_release.outputs.upload_url }}
-        asset_path: AddressablesTools/bin/Release/net6.0
+        asset_path: AddressablesTools-windows.zip
         asset_name: AddressablesTools-windows.zip
         asset_content_type: application/zip
 
@@ -73,6 +83,6 @@ jobs:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       with:
         upload_url: ${{ steps.create_release.outputs.upload_url }}
-        asset_path: Example/bin/Release/net6.0
+        asset_path: Example-windows.zip
         asset_name: Example-windows.zip
         asset_content_type: application/zip
