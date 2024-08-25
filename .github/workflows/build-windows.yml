@@ -1,0 +1,78 @@
+name: Build and Release AddressablesTools Windows
+on:
+  push:
+    branches: [ master ]
+  pull_request:
+    branches: [ master ]
+  release:
+    types: [created]
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v2
+      with:
+        fetch-depth: 0
+    - name: Install .NET Core
+      uses: actions/setup-dotnet@v3
+      with:
+        dotnet-version: 6.0.x
+    - name: Setup MSBuild.exe
+      uses: microsoft/setup-msbuild@v1.1
+    - name: Restore NuGet packages
+      run: msbuild /t:restore
+
+    - name: Build AddressablesTools
+      run: msbuild AddressablesTools/AddressablesTools.csproj /restore /p:Configuration=Release
+    - name: Build Example
+      run: msbuild Example/Example.csproj /restore /p:Configuration=Release
+
+    - name: Upload AddressablesTools
+      uses: actions/upload-artifact@v2
+      with:
+        name: AddressablesTools-windows
+        path: AddressablesTools/bin/Release/net6.0
+    - name: Upload Example
+      uses: actions/upload-artifact@v2
+      with:
+        name: Example-windows
+        path: Example/bin/Release/net6.0
+
+    - name: Create GitHub Release
+      id: create_release
+      if: github.event_name == 'release'
+      uses: actions/create-release@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        tag_name: ${{ github.ref }}
+        release_name: Release ${{ github.ref }}
+        draft: false
+        prerelease: false
+        body: |
+          ## Changes
+          - Description of changes in this release.
+
+    - name: Upload AddressablesTools Release Asset
+      if: github.event_name == 'release'
+      uses: actions/upload-release-asset@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ steps.create_release.outputs.upload_url }}
+        asset_path: AddressablesTools/bin/Release/net6.0
+        asset_name: AddressablesTools-windows.zip
+        asset_content_type: application/zip
+
+    - name: Upload Example Release Asset
+      if: github.event_name == 'release'
+      uses: actions/upload-release-asset@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ steps.create_release.outputs.upload_url }}
+        asset_path: Example/bin/Release/net6.0
+        asset_name: Example-windows.zip
+        asset_content_type: application/zip
