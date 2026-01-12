@@ -1,4 +1,4 @@
-name: Build AddressablesTools Example Windows
+name: Build and Release AddressablesTools Windows
 
 on:
   push:
@@ -6,29 +6,62 @@ on:
   pull_request:
     branches: [ master ]
 
+permissions:
+  contents: write
+
 jobs:
   build:
-    runs-on: windows-2022
-
+    runs-on: windows-latest
     steps:
     - name: Checkout
-      uses: actions/checkout@v2
+      uses: actions/checkout@v3
       with:
         fetch-depth: 0
+
+    - name: Get Short SHA
+      run: echo "SHORT_SHA=$($env:GITHUB_SHA.Substring(0, 7))" >> $env:GITHUB_ENV
 
     - name: Install .NET Core
       uses: actions/setup-dotnet@v3
       with:
-        dotnet-version: 8.0.x
+        dotnet-version: 6.0.x
 
-    - name: Setup MSBuild.exe
-      uses: microsoft/setup-msbuild@v1.1
+    - name: Publish AddressablesTools
+      run: dotnet publish AddressablesTools/AddressablesTools.csproj -c Release -o ./out_tools
 
-    - name: Build
-      run: msbuild AddressablesTools.sln /restore /p:Configuration=Release
-    
-    - name: Upload
+    - name: Publish Example
+      run: dotnet publish Example/Example.csproj -c Release -o ./out_example
+
+    - name: Upload AddressablesTools Artifact
       uses: actions/upload-artifact@v4
       with:
-        name: addrtool-example-windows
-        path: Example/bin/Release/net8.0
+        name: AddressablesTools-windows
+        path: ./out_tools
+        
+    - name: Upload Example Artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: Example-windows
+        path: ./out_example
+
+    - name: Compress AddressablesTools
+      run: |
+        Compress-Archive -Path ./out_tools/* -DestinationPath AddressablesTools-windows.zip
+
+    - name: Compress Example
+      run: |
+        Compress-Archive -Path ./out_example/* -DestinationPath Example-windows.zip
+
+    - name: Create Release
+      if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+      uses: softprops/action-gh-release@v1
+      with:
+        tag_name: ${{ env.SHORT_SHA }}
+        name: Release ${{ env.SHORT_SHA }}
+        files: |
+          AddressablesTools-windows.zip
+          Example-windows.zip
+        draft: false
+        prerelease: false
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
