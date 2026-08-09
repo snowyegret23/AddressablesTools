@@ -23,6 +23,11 @@ namespace AddressablesTools.Catalog
         private const string HASH128_MATCHNAME = "UnityEngine.CoreModule; " + HASH128_TYPENAME;
         private const string ABRO_MATCHNAME = "Unity.ResourceManager; " + ABRO_TYPENAME;
 
+        private const string INT_V3_MATCHNAME = INT_TYPENAME;
+        private const string LONG_V3_MATCHNAME = LONG_TYPENAME;
+        private const string BOOL_V3_MATCHNAME = BOOL_TYPENAME;
+        private const string STRING_V3_MATCHNAME = STRING_TYPENAME;
+
         internal enum ObjectType
         {
             AsciiString,
@@ -89,7 +94,7 @@ namespace AddressablesTools.Catalog
                     string jsonText = ReadString4Unicode(br);
 
                     ClassJsonObject jsonObj = new ClassJsonObject(assemblyName, className, jsonText);
-                    string matchName = jsonObj.Type.GetMatchName();
+                    string matchName = jsonObj.Type.GetMatchName(1);
                     switch (matchName)
                     {
                         case ABRO_MATCHNAME:
@@ -111,7 +116,7 @@ namespace AddressablesTools.Catalog
             }
         }
 
-        internal static object DecodeV2(CatalogBinaryReader reader, uint offset)
+        internal static object DecodeV2(CatalogBinaryReader reader, uint offset, int version)
         {
             if (offset == uint.MaxValue)
             {
@@ -126,10 +131,11 @@ namespace AddressablesTools.Catalog
 
             SerializedType serializedType = new SerializedType();
             serializedType.Read(reader, typeNameOffset);
-            string matchName = serializedType.GetMatchName();
+            string matchName = serializedType.GetMatchName(version);
             switch (matchName)
             {
                 case INT_MATCHNAME:
+                case INT_V3_MATCHNAME:
                 {
                     if (isDefaultObject)
                     {
@@ -141,6 +147,7 @@ namespace AddressablesTools.Catalog
                 }
 
                 case LONG_MATCHNAME:
+                case LONG_V3_MATCHNAME:
                 {
                     if (isDefaultObject)
                     {
@@ -152,6 +159,7 @@ namespace AddressablesTools.Catalog
                 }
 
                 case BOOL_MATCHNAME:
+                case BOOL_V3_MATCHNAME:
                 {
                     if (isDefaultObject)
                     {
@@ -163,6 +171,7 @@ namespace AddressablesTools.Catalog
                 }
 
                 case STRING_MATCHNAME:
+                case STRING_V3_MATCHNAME:
                 {
                     if (isDefaultObject)
                     {
@@ -284,7 +293,7 @@ namespace AddressablesTools.Catalog
 
                 case WrappedSerializedObject wso:
                 {
-                    string matchName = wso.Type.GetMatchName();
+                    string matchName = wso.Type.GetMatchName(1);
                     string jsonText;
                     switch (matchName)
                     {
@@ -361,7 +370,7 @@ namespace AddressablesTools.Catalog
             return '\0';
         }
 
-        internal static uint EncodeV2(CatalogBinaryWriter writer, SerializedTypeAsmContainer staCont, object ob)
+        internal static uint EncodeV2(CatalogBinaryWriter writer, SerializedTypeAsmContainer staCont, object ob, int version)
         {
             if (ob == null)
             {
@@ -460,7 +469,7 @@ namespace AddressablesTools.Catalog
 
                 case WrappedSerializedObject wso:
                 {
-                    string matchName = wso.Type.GetMatchName();
+                    string matchName = wso.Type.GetMatchName(version);
                     switch (matchName)
                     {
                         case ABRO_MATCHNAME:

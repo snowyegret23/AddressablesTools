@@ -20,6 +20,7 @@ Supported versions:
 | Binv1        | Yes          | Yes*          |
 | Binv1 "v1.1" | Yes          | Yes*          |
 | Binv2        | Yes          | Yes           |
+| Binv3        | Yes*         | Yes*          |
 `---------------------------------------------`
 
 * - This support has not been thoroughly tested 

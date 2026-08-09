@@ -33,7 +33,7 @@ namespace AddressablesTools.Catalog
             Type = resourceType;
         }
 
-        internal void Read(CatalogBinaryReader reader, uint offset)
+        internal void Read(CatalogBinaryReader reader, uint offset, int version)
         {
             reader.BaseStream.Position = offset;
             uint primaryKeyOffset = reader.ReadUInt32();
@@ -57,7 +57,7 @@ namespace AddressablesTools.Catalog
                 var dependencyLocation = reader.ReadCustom(objectOffset, () =>
                 {
                     var newDepLoc = new ResourceLocation();
-                    newDepLoc.Read(reader, objectOffset);
+                    newDepLoc.Read(reader, objectOffset, version);
                     return newDepLoc;
                 });
                 dependencies.Add(dependencyLocation);
@@ -69,12 +69,12 @@ namespace AddressablesTools.Catalog
             // officially, dependenciesOffset is used here. lol. we can't do
             // that since writing the file would permenantly lose that value.
             DependencyHashCode = dependencyHashCode;
-            Data = SerializedObjectDecoder.DecodeV2(reader, dataOffset);
+            Data = SerializedObjectDecoder.DecodeV2(reader, dataOffset, version);
             Type = new SerializedType();
             Type.Read(reader, typeOffset);
         }
 
-        internal uint Write(CatalogBinaryWriter writer, SerializedTypeAsmContainer staCont)
+        internal uint Write(CatalogBinaryWriter writer, SerializedTypeAsmContainer staCont, int version)
         {
             uint dependenciesOffset;
             if (Dependencies.Count > 0)
@@ -82,7 +82,7 @@ namespace AddressablesTools.Catalog
                 uint[] dependenciesList = new uint[Dependencies.Count];
                 for (int i = 0; i < Dependencies.Count; i++)
                 {
-                    dependenciesList[i] = Dependencies[i].Write(writer, staCont);
+                    dependenciesList[i] = Dependencies[i].Write(writer, staCont, version);
                 }
 
                 dependenciesOffset = writer.WriteOffsetArray(dependenciesList);
@@ -97,7 +97,7 @@ namespace AddressablesTools.Catalog
             uint providerIdOffset = writer.WriteEncodedString(ProviderId, '.');
 
             int dependencyHashCode = DependencyHashCode;
-            uint dataOffset = SerializedObjectDecoder.EncodeV2(writer, staCont, Data);
+            uint dataOffset = SerializedObjectDecoder.EncodeV2(writer, staCont, Data, version);
             uint typeOffset = Type.Write(writer);
 
             Span<byte> bytes = stackalloc byte[28];

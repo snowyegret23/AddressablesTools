@@ -253,14 +253,14 @@ namespace AddressablesTools.Catalog
             {
                 uint keyOffset = keyLocationOffsets[i];
                 uint locationListOffset = keyLocationOffsets[i + 1];
-                object key = SerializedObjectDecoder.DecodeV2(reader, keyOffset);
+                object key = SerializedObjectDecoder.DecodeV2(reader, keyOffset, Version);
 
                 uint[] locationOffsets = reader.ReadOffsetArray(locationListOffset);
                 List<ResourceLocation> locations = new List<ResourceLocation>(locationOffsets.Length);
                 for (int j = 0; j < locationOffsets.Length; j++)
                 {
                     ResourceLocation location = new ResourceLocation();
-                    location.Read(reader, locationOffsets[j]);
+                    location.Read(reader, locationOffsets[j], Version);
                     locations.Add(location);
                 }
 
@@ -398,7 +398,7 @@ namespace AddressablesTools.Catalog
                 for (int j = 0; j < kvp.Value.Count; j++)
                 {
                     ResourceLocation location = kvp.Value[j];
-                    locationOffsets[j] = location.Write(writer, staCont);
+                    locationOffsets[j] = location.Write(writer, staCont, Version);
                 }
 
                 tmpLocationOffsetArray.Add(locationOffsets);
@@ -408,7 +408,7 @@ namespace AddressablesTools.Catalog
             int i2 = 0;
             foreach (var kvp in Resources)
             {
-                uint keyOffset = SerializedObjectDecoder.EncodeV2(writer, staCont, kvp.Key);
+                uint keyOffset = SerializedObjectDecoder.EncodeV2(writer, staCont, kvp.Key, Version);
                 keyLocationOffsets[i++] = keyOffset;
 
                 uint locationListOffset = writer.WriteOffsetArray(tmpLocationOffsetArray[i2++]);

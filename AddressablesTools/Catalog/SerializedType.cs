@@ -54,19 +54,44 @@ namespace AddressablesTools.Catalog
             return writer.WriteWithCache(bytes);
         }
 
-        internal string GetMatchName()
+        internal string GetMatchName(int version)
         {
-            return GetAssemblyShortName() + "; " + ClassName;
+            if (version <= 2)
+            {
+                // always has assembly name
+                return GetAssemblyShortName(version) + "; " + ClassName;
+            }
+            else // if (version >= 3)
+            {
+                // may or may not have assembly name
+                if (AssemblyName is null)
+                {
+                    return ClassName;
+                }
+                else
+                {
+                    return GetAssemblyShortName(version) + "; " + ClassName;
+                }
+            }
         }
 
-        internal string GetAssemblyShortName()
+        internal string GetAssemblyShortName(int version)
         {
-            if (!AssemblyName.Contains(','))
+            if (version <= 2)
             {
-                throw new InvalidDataException("Assembly name must have commas");
-            }
+                if (!AssemblyName.Contains(','))
+                {
+                    throw new InvalidDataException("Assembly name must have commas");
+                }
 
-            return AssemblyName.Split(',')[0];
+                // strip assembly version info
+                return AssemblyName.Split(',')[0];
+            }
+            else // if (version >= 3)
+            {
+                // nothing to strip since version info is not provided
+                return AssemblyName;
+            }
         }
     }
 }

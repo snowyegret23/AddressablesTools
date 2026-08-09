@@ -17,9 +17,9 @@ namespace AddressablesTools.Binary
         {
             Magic = reader.ReadInt32();
             Version = reader.ReadInt32();
-            if (Version is not (1 or 2))
+            if (Version < 1 || Version > 3)
             {
-                throw new NotSupportedException("Only versions 1 and 2 are supported");
+                throw new NotSupportedException("Only versions 1-3 are supported");
             }
             reader.Version = Version;
 
