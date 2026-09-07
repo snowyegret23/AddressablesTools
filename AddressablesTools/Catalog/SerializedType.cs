@@ -2,7 +2,6 @@
 using AddressablesTools.JSON;
 using System;
 using System.Buffers.Binary;
-using System.IO;
 
 namespace AddressablesTools.Catalog
 {
@@ -31,6 +30,7 @@ namespace AddressablesTools.Catalog
 
         internal void Read(CatalogBinaryReader reader, uint offset)
         {
+            reader.ValidateRange(offset, 8);
             reader.BaseStream.Position = offset;
 
             uint assemblyNameOffset = reader.ReadUInt32();
@@ -56,42 +56,15 @@ namespace AddressablesTools.Catalog
 
         internal string GetMatchName(int version)
         {
-            if (version <= 2)
-            {
-                // always has assembly name
-                return GetAssemblyShortName(version) + "; " + ClassName;
-            }
-            else // if (version >= 3)
-            {
-                // may or may not have assembly name
-                if (AssemblyName is null)
-                {
-                    return ClassName;
-                }
-                else
-                {
-                    return GetAssemblyShortName(version) + "; " + ClassName;
-                }
-            }
+            string assembly = GetAssemblyShortName(version);
+            if (assembly == "System.Private.CoreLib" || assembly == "System.Runtime")
+                assembly = "mscorlib";
+            return string.IsNullOrEmpty(assembly) ? ClassName : assembly + "; " + ClassName;
         }
 
         internal string GetAssemblyShortName(int version)
         {
-            if (version <= 2)
-            {
-                if (!AssemblyName.Contains(','))
-                {
-                    throw new InvalidDataException("Assembly name must have commas");
-                }
-
-                // strip assembly version info
-                return AssemblyName.Split(',')[0];
-            }
-            else // if (version >= 3)
-            {
-                // nothing to strip since version info is not provided
-                return AssemblyName;
-            }
+            return AssemblyName?.Split(',')[0].Trim();
         }
     }
 }

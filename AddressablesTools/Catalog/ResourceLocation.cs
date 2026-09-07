@@ -16,6 +16,8 @@ namespace AddressablesTools.Catalog
         public int DependencyHashCode { get; set; }
         public string PrimaryKey { get; set; }
         public SerializedType Type { get; set; }
+        internal object JsonPrimaryKey { get; set; }
+        private SerializedType _binaryDataType;
 
         internal void Read(
             string internalId, string providerId, object dependencyKey, object data,
@@ -29,12 +31,14 @@ namespace AddressablesTools.Catalog
             Data = data;
             HashCode = internalId.GetHashCode() * 31 + providerId.GetHashCode();
             DependencyHashCode = depHashCode;
-            PrimaryKey = primaryKey.ToString();
+            JsonPrimaryKey = primaryKey;
+            PrimaryKey = primaryKey?.ToString();
             Type = resourceType;
         }
 
         internal void Read(CatalogBinaryReader reader, uint offset, int version)
         {
+            reader.ValidateRange(offset, 28);
             reader.BaseStream.Position = offset;
             uint primaryKeyOffset = reader.ReadUInt32();
             uint internalIdOffset = reader.ReadUInt32();
@@ -54,12 +58,7 @@ namespace AddressablesTools.Catalog
             {
                 //reader.BaseStream.Position = dependencyOffsets[i];
                 uint objectOffset = dependencyOffsets[i];
-                var dependencyLocation = reader.ReadCustom(objectOffset, () =>
-                {
-                    var newDepLoc = new ResourceLocation();
-                    newDepLoc.Read(reader, objectOffset, version);
-                    return newDepLoc;
-                });
+                var dependencyLocation = ReadReference(reader, objectOffset, version);
                 dependencies.Add(dependencyLocation);
             }
 
@@ -69,15 +68,33 @@ namespace AddressablesTools.Catalog
             // officially, dependenciesOffset is used here. lol. we can't do
             // that since writing the file would permenantly lose that value.
             DependencyHashCode = dependencyHashCode;
-            Data = SerializedObjectDecoder.DecodeV2(reader, dataOffset, version);
-            Type = new SerializedType();
-            Type.Read(reader, typeOffset);
+            Data = SerializedObjectDecoder.DecodeV2(reader, dataOffset, version, out _binaryDataType);
+            if (typeOffset != uint.MaxValue)
+            {
+                Type = new SerializedType();
+                Type.Read(reader, typeOffset);
+            }
+        }
+
+        internal static ResourceLocation ReadReference(CatalogBinaryReader reader, uint offset, int version)
+        {
+            if (reader.TryGetCachedObject(offset, out ResourceLocation location))
+                return location;
+            location = reader.CacheAndReturn(offset, new ResourceLocation());
+            location.Read(reader, offset, version);
+            return location;
         }
 
         internal uint Write(CatalogBinaryWriter writer, SerializedTypeAsmContainer staCont, int version)
         {
+            if (writer.Locations.TryGetValue(this, out uint offset))
+                return offset;
+            offset = checked((uint)writer.BaseStream.Position);
+            writer.Locations.Add(this, offset);
+            writer.Reserve(28);
+
             uint dependenciesOffset;
-            if (Dependencies.Count > 0)
+            if (Dependencies != null && Dependencies.Count > 0)
             {
                 uint[] dependenciesList = new uint[Dependencies.Count];
                 for (int i = 0; i < Dependencies.Count; i++)
@@ -97,8 +114,8 @@ namespace AddressablesTools.Catalog
             uint providerIdOffset = writer.WriteEncodedString(ProviderId, '.');
 
             int dependencyHashCode = DependencyHashCode;
-            uint dataOffset = SerializedObjectDecoder.EncodeV2(writer, staCont, Data, version);
-            uint typeOffset = Type.Write(writer);
+            uint dataOffset = SerializedObjectDecoder.EncodeV2(writer, staCont, Data, version, _binaryDataType);
+            uint typeOffset = Type?.Write(writer) ?? uint.MaxValue;
 
             Span<byte> bytes = stackalloc byte[28];
             BinaryPrimitives.WriteUInt32LittleEndian(bytes, primaryKeyOffset);
@@ -108,7 +125,11 @@ namespace AddressablesTools.Catalog
             BinaryPrimitives.WriteInt32LittleEndian(bytes[16..], dependencyHashCode);
             BinaryPrimitives.WriteUInt32LittleEndian(bytes[20..], dataOffset);
             BinaryPrimitives.WriteUInt32LittleEndian(bytes[24..], typeOffset);
-            return writer.WriteWithCache(bytes);
+            long end = writer.BaseStream.Position;
+            writer.BaseStream.Position = offset;
+            writer.Write(bytes);
+            writer.BaseStream.Position = end;
+            return offset;
         }
     }
 }

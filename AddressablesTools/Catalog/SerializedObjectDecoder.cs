@@ -82,7 +82,13 @@ namespace AddressablesTools.Catalog
 
                 case ObjectType.Type:
                 {
+                    long position = br.BaseStream.Position;
                     string str = ReadString1(br);
+                    if (!Guid.TryParse(str, out _))
+                    {
+                        br.BaseStream.Position = position;
+                        goto case ObjectType.JsonObject;
+                    }
                     TypeReference typeReference = new TypeReference(str);
                     return typeReference;
                 }
@@ -94,6 +100,7 @@ namespace AddressablesTools.Catalog
                     string jsonText = ReadString4Unicode(br);
 
                     ClassJsonObject jsonObj = new ClassJsonObject(assemblyName, className, jsonText);
+                    jsonObj.JsonTag = (byte)type;
                     string matchName = jsonObj.Type.GetMatchName(1);
                     switch (matchName)
                     {
@@ -101,7 +108,7 @@ namespace AddressablesTools.Catalog
                         {
                             AssetBundleRequestOptions obj = new AssetBundleRequestOptions();
                             obj.Read(jsonText);
-                            return new WrappedSerializedObject(jsonObj.Type, obj);
+                            return new WrappedSerializedObject(jsonObj.Type, obj) { JsonTag = (byte)type };
                         }
                     }
 
@@ -111,25 +118,27 @@ namespace AddressablesTools.Catalog
 
                 default:
                 {
-                    return null;
+                    throw new InvalidDataException($"Unsupported JSON object tag {(byte)type}.");
                 }
             }
         }
 
-        internal static object DecodeV2(CatalogBinaryReader reader, uint offset, int version)
+        internal static object DecodeV2(CatalogBinaryReader reader, uint offset, int version, out SerializedType serializedType)
         {
+            serializedType = null;
             if (offset == uint.MaxValue)
             {
                 return null;
             }
 
+            reader.ValidateRange(offset, 8);
             reader.BaseStream.Position = offset;
             uint typeNameOffset = reader.ReadUInt32();
             uint objectOffset = reader.ReadUInt32();
 
             bool isDefaultObject = objectOffset == uint.MaxValue;
 
-            SerializedType serializedType = new SerializedType();
+            serializedType = new SerializedType();
             serializedType.Read(reader, typeNameOffset);
             string matchName = serializedType.GetMatchName(version);
             switch (matchName)
@@ -180,7 +189,7 @@ namespace AddressablesTools.Catalog
 
                     reader.BaseStream.Position = objectOffset;
                     uint stringOffset = reader.ReadUInt32();
-                    char separator = reader.ReadChar();
+                    char separator = (char)reader.ReadUInt16();
                     return reader.ReadEncodedString(stringOffset, separator);
                 }
 
@@ -269,7 +278,7 @@ namespace AddressablesTools.Catalog
                 case Hash128 hash:
                 {
                     bw.Write((byte)ObjectType.Hash128);
-                    bw.Write(hash.Value);
+                    WriteString1(bw, hash.Value);
                     break;
                 }
 
@@ -284,7 +293,7 @@ namespace AddressablesTools.Catalog
                 {
                     // fallback class, shouldn't be used but here just in case
                     // use WrappedSerializedObject if possible
-                    bw.Write((byte)ObjectType.JsonObject);
+                    bw.Write(jsonObject.JsonTag);
                     WriteString1(bw, jsonObject.Type.AssemblyName);
                     WriteString1(bw, jsonObject.Type.ClassName);
                     WriteString4Unicode(bw, jsonObject.JsonText);
@@ -309,7 +318,7 @@ namespace AddressablesTools.Catalog
                         }
                     }
 
-                    bw.Write((byte)ObjectType.JsonObject);
+                    bw.Write(wso.JsonTag);
                     WriteString1(bw, wso.Type.AssemblyName);
                     WriteString1(bw, wso.Type.ClassName);
                     WriteString4Unicode(bw, jsonText);
@@ -327,6 +336,7 @@ namespace AddressablesTools.Catalog
         {
             // no unicode separators pls :)
             Span<byte> mapping = stackalloc byte[256];
+            mapping.Clear();
             for (int i = 0; i < options.Length; i++)
             {
                 mapping[options[i]] = (byte)(i + 1);
@@ -370,7 +380,7 @@ namespace AddressablesTools.Catalog
             return '\0';
         }
 
-        internal static uint EncodeV2(CatalogBinaryWriter writer, SerializedTypeAsmContainer staCont, object ob, int version)
+        internal static uint EncodeV2(CatalogBinaryWriter writer, SerializedTypeAsmContainer staCont, object ob, int version, SerializedType originalType = null)
         {
             if (ob == null)
             {
@@ -383,12 +393,9 @@ namespace AddressablesTools.Catalog
             {
                 case int i:
                 {
-                    if (i != default)
-                    {
-                        Span<byte> valBytes = stackalloc byte[4];
-                        BinaryPrimitives.WriteInt32LittleEndian(valBytes, i);
-                        writer.WriteWithCache(valBytes);
-                    }
+                    Span<byte> valBytes = stackalloc byte[4];
+                    BinaryPrimitives.WriteInt32LittleEndian(valBytes, i);
+                    objectOffset = writer.WriteWithCache(valBytes);
 
                     serializedType = new SerializedType()
                     {
@@ -400,12 +407,9 @@ namespace AddressablesTools.Catalog
 
                 case long lon:
                 {
-                    if (lon != default)
-                    {
-                        Span<byte> valBytes = stackalloc byte[8];
-                        BinaryPrimitives.WriteInt64LittleEndian(valBytes, lon);
-                        writer.WriteWithCache(valBytes);
-                    }
+                    Span<byte> valBytes = stackalloc byte[8];
+                    BinaryPrimitives.WriteInt64LittleEndian(valBytes, lon);
+                    objectOffset = writer.WriteWithCache(valBytes);
 
                     serializedType = new SerializedType()
                     {
@@ -417,11 +421,8 @@ namespace AddressablesTools.Catalog
 
                 case bool boo:
                 {
-                    if (boo != default)
-                    {
-                        Span<byte> valBytes = [boo ? (byte)1 : (byte)0];
-                        writer.WriteWithCache(valBytes);
-                    }
+                    Span<byte> valBytes = [boo ? (byte)1 : (byte)0];
+                    objectOffset = writer.WriteWithCache(valBytes);
 
                     serializedType = new SerializedType()
                     {
@@ -433,16 +434,13 @@ namespace AddressablesTools.Catalog
 
                 case string str:
                 {
-                    if (str != string.Empty)
-                    {
-                        char dynstrSep = GetSeparatorWithMostOccurrences(str, ['/', '\\', '.', '-', '_', ',']);
-                        uint stringOffset = writer.WriteEncodedString(str, dynstrSep);
+                    char dynstrSep = GetSeparatorWithMostOccurrences(str, ['/', '\\', '.', '-', '_', ',']);
+                    uint stringOffset = writer.WriteEncodedString(str, dynstrSep);
 
-                        Span<byte> bytes = stackalloc byte[8];
-                        BinaryPrimitives.WriteUInt32LittleEndian(bytes, stringOffset);
-                        BinaryPrimitives.WriteUInt32LittleEndian(bytes[4..], dynstrSep);
-                        objectOffset = writer.WriteWithCache(bytes);
-                    }
+                    Span<byte> bytes = stackalloc byte[8];
+                    BinaryPrimitives.WriteUInt32LittleEndian(bytes, stringOffset);
+                    BinaryPrimitives.WriteUInt32LittleEndian(bytes[4..], dynstrSep);
+                    objectOffset = writer.WriteWithCache(bytes);
 
                     serializedType = new SerializedType()
                     {
@@ -454,10 +452,7 @@ namespace AddressablesTools.Catalog
 
                 case Hash128 hash:
                 {
-                    if (hash != default)
-                    {
-                        hash.Write(writer);
-                    }
+                    objectOffset = hash.Write(writer);
 
                     serializedType = new SerializedType()
                     {
@@ -494,6 +489,8 @@ namespace AddressablesTools.Catalog
                 }
             }
 
+            if (ob is not WrappedSerializedObject && originalType?.ClassName == serializedType.ClassName)
+                serializedType = originalType;
             Span<byte> finalBytes = stackalloc byte[8];
             BinaryPrimitives.WriteUInt32LittleEndian(finalBytes, serializedType.Write(writer));
             BinaryPrimitives.WriteUInt32LittleEndian(finalBytes[4..], objectOffset);
@@ -501,24 +498,66 @@ namespace AddressablesTools.Catalog
             return writer.WriteWithCache(finalBytes);
         }
 
+        internal static object DecodeRawKey(BinaryReader reader, int length)
+        {
+            ObjectType type = (ObjectType)reader.ReadByte();
+            if (type == ObjectType.AsciiString || type == ObjectType.UnicodeString || type == ObjectType.Hash128)
+            {
+                string value = (type == ObjectType.UnicodeString ? Encoding.Unicode : Encoding.ASCII).GetString(ReadExactBytes(reader, length - 1));
+                return type == ObjectType.Hash128 ? new Hash128(value) : value;
+            }
+            reader.BaseStream.Position--;
+            if (type >= ObjectType.UInt16 && type <= ObjectType.Int32)
+                return DecodeV1(reader);
+            throw new NotSupportedException($"Unsupported early-preview key tag {(byte)type}.");
+        }
+
+        internal static void EncodeRawKey(BinaryWriter writer, object value)
+        {
+            if (value is string str)
+            {
+                bool unicode = Encoding.ASCII.GetString(Encoding.ASCII.GetBytes(str)) != str;
+                writer.Write((byte)(unicode ? ObjectType.UnicodeString : ObjectType.AsciiString));
+                writer.Write((unicode ? Encoding.Unicode : Encoding.ASCII).GetBytes(str));
+            }
+            else if (value is Hash128 hash)
+            {
+                writer.Write((byte)ObjectType.Hash128);
+                writer.Write(Encoding.ASCII.GetBytes(hash.Value));
+            }
+            else if (value is ushort || value is uint || value is int)
+                EncodeV1(writer, value);
+            else
+                throw new NotSupportedException("Early-preview catalogs only support string, integer and Hash128 keys.");
+        }
+
+        private static byte[] ReadExactBytes(BinaryReader reader, int length)
+        {
+            if (length < 0 || length > reader.BaseStream.Length - reader.BaseStream.Position)
+                throw new InvalidDataException("Serialized string extends beyond the catalog data.");
+            return reader.ReadBytes(length);
+        }
+
         private static string ReadString1(BinaryReader br)
         {
             int length = br.ReadByte();
-            string str = Encoding.ASCII.GetString(br.ReadBytes(length));
+            string str = Encoding.ASCII.GetString(ReadExactBytes(br, length));
             return str;
         }
 
         private static string ReadString4(BinaryReader br)
         {
             int length = br.ReadInt32();
-            string str = Encoding.ASCII.GetString(br.ReadBytes(length));
+            string str = Encoding.ASCII.GetString(ReadExactBytes(br, length));
             return str;
         }
 
         private static string ReadString4Unicode(BinaryReader br)
         {
             int length = br.ReadInt32();
-            string str = Encoding.Unicode.GetString(br.ReadBytes(length));
+            if ((length & 1) != 0)
+                throw new InvalidDataException("Invalid UTF-16 string length.");
+            string str = Encoding.Unicode.GetString(ReadExactBytes(br, length));
             return str;
         }
 

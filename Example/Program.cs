@@ -86,6 +86,10 @@ static void SearchExample(string[] args)
                         continue;
                     }
 
+                    if (locs.Count == 0)
+                    {
+                        continue;
+                    }
                     Console.WriteLine($"  {locs[0].InternalId}");
                     if (locs.Count > 1)
                     {

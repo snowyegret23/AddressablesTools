@@ -5,15 +5,18 @@ using System.IO;
 using System.IO.Hashing;
 using System.Linq;
 using System.Text;
+using AddressablesTools.Catalog;
 
 namespace AddressablesTools.Binary
 {
     internal class CatalogBinaryWriter : BinaryWriter
     {
         public int Version { get; set; } = 1;
+        public bool? ReverseDynamicStrings { get; set; }
 
         private readonly Dictionary<UInt128, uint> _dataCache = [];
         private readonly Dictionary<string, uint> _quickStrCache = [];
+        internal readonly Dictionary<ResourceLocation, uint> Locations = [];
 
         public CatalogBinaryWriter(Stream input) : base(input) { }
 
@@ -22,6 +25,7 @@ namespace AddressablesTools.Binary
             const int BLOCK_SIZE = 512;
 
             Span<byte> zeros = stackalloc byte[BLOCK_SIZE];
+            zeros.Clear();
             while (space > BLOCK_SIZE)
             {
                 BaseStream.Write(zeros);
@@ -71,6 +75,8 @@ namespace AddressablesTools.Binary
             lengthlessBytes.CopyTo(bytesSpan[4..]);
 
             uint pos = WriteWithCache(bytes) + 4;
+            if (unicode)
+                pos |= 0x80000000;
             _quickStrCache[data] = pos;
             return pos;
         }
@@ -123,9 +129,11 @@ namespace AddressablesTools.Binary
             }
 
             List<uint> splitOffsets = new List<uint>(joinedSplits.Count);
+            if (ReverseDynamicStrings == false)
+                joinedSplits.Reverse();
             foreach (string split in joinedSplits)
             {
-                uint offset = WriteBasicString(split, unicode);
+                uint offset = WriteBasicString(split, !IsStringAscii(split));
                 splitOffsets.Add(offset);
             }
 
@@ -140,7 +148,7 @@ namespace AddressablesTools.Binary
                 lastLlOffset = thisLlOffset;
             }
 
-            return lastLlOffset;
+            return lastLlOffset | 0x40000000;
         }
 
         private static bool IsStringAscii(string str)
@@ -148,7 +156,7 @@ namespace AddressablesTools.Binary
             int strLen = str.Length;
             for (int i = 0; i < strLen; i++)
             {
-                if (str[i] > 255)
+                if (str[i] > 127)
                     return false;
             }
 
@@ -163,22 +171,16 @@ namespace AddressablesTools.Binary
             }
 
             bool unicode = data.Length > 0 && !IsStringAscii(data);
-            bool dynamicString = dynstrSep != '\0' && data.Contains(dynstrSep);
+            bool dynamicString = ReverseDynamicStrings != null && dynstrSep != '\0' && data.Contains(dynstrSep);
 
             uint result;
             if (dynamicString)
             {
                 result = WriteDynamicString(data, unicode, dynstrSep);
-                result |= 0x40000000;
             }
             else
             {
                 result = WriteBasicString(data, unicode);
-            }
-
-            if (unicode)
-            {
-                result |= 0x80000000;
             }
 
             return result;

@@ -8,6 +8,10 @@ namespace AddressablesTools.Classes
     {
         public string Value { get; set; }
 
+        public override string ToString() => Value;
+        public override bool Equals(object obj) => obj is Hash128 hash && StringComparer.OrdinalIgnoreCase.Equals(Value, hash.Value);
+        public override int GetHashCode() => StringComparer.OrdinalIgnoreCase.GetHashCode(Value ?? "");
+
         public Hash128(string value)
         {
             Value = value;

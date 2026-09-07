@@ -4,6 +4,7 @@ using System.Buffers.Binary;
 using System.Text.Encodings.Web;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using System.Linq;
 
 namespace AddressablesTools.Classes
 {
@@ -20,6 +21,7 @@ namespace AddressablesTools.Classes
         public CommonInfo ComInfo { get; set; }
         public string BundleName { get; set; }
         public long BundleSize { get; set; }
+        private JsonObject _jsonTemplate;
 
         internal void Read(string jsonText)
         {
@@ -28,11 +30,12 @@ namespace AddressablesTools.Classes
             {
                 return;
             }
+            _jsonTemplate = jsonObj;
 
             Hash = (string)jsonObj["m_Hash"];
-            Crc = (uint)jsonObj["m_Crc"];
+            Crc = (uint)(jsonObj["m_Crc"] ?? 0u);
             BundleName = (string)jsonObj["m_BundleName"];
-            BundleSize = (long)jsonObj["m_BundleSize"];
+            BundleSize = (long)(jsonObj["m_BundleSize"] ?? 0L);
 
             // this is only for writing back
             int commonInfoVersion;
@@ -55,10 +58,10 @@ namespace AddressablesTools.Classes
             ComInfo = new CommonInfo()
             {
                 Version = commonInfoVersion,
-                Timeout = (short)(int)jsonObj["m_Timeout"],
+                Timeout = (int)(jsonObj["m_Timeout"] ?? 0),
                 ChunkedTransfer = (bool)(jsonObj["m_ChunkedTransfer"] ?? false),
-                RedirectLimit = (byte)(int)jsonObj["m_RedirectLimit"],
-                RetryCount = (byte)(int)jsonObj["m_RetryCount"],
+                RedirectLimit = (int)(jsonObj["m_RedirectLimit"] ?? -1),
+                RetryCount = (int)(jsonObj["m_RetryCount"] ?? 0),
                 AssetLoadMode = (AssetLoadMode)(int)(jsonObj["m_AssetLoadMode"] ?? (int)AssetLoadMode.RequestedAssetAndDependencies),
                 UseCrcForCachedBundle = (bool)(jsonObj["m_UseCrcForCachedBundles"] ?? false),
                 UseUnityWebRequestForLocalBundles = (bool)(jsonObj["m_UseUWRForLocalBundles"] ?? false),
@@ -68,6 +71,7 @@ namespace AddressablesTools.Classes
 
         internal void Read(CatalogBinaryReader reader, uint offset)
         {
+            reader.ValidateRange(offset, 20);
             reader.BaseStream.Position = offset;
 
             uint hashOffset = reader.ReadUInt32();
@@ -76,6 +80,7 @@ namespace AddressablesTools.Classes
             uint bundleSize = reader.ReadUInt32();
             uint commonInfoOffset = reader.ReadUInt32();
 
+            reader.ValidateRange(hashOffset, 16);
             reader.BaseStream.Position = hashOffset;
             uint hashV0 = reader.ReadUInt32();
             uint hashV1 = reader.ReadUInt32();
@@ -111,11 +116,11 @@ namespace AddressablesTools.Classes
             jsonObj["m_RetryCount"] = ComInfo.RetryCount;
             jsonObj["m_BundleName"] = BundleName;
             jsonObj["m_BundleSize"] = BundleSize;
-            if (ComInfo.Version > 1)
+            if (_jsonTemplate != null || ComInfo.Version > 1)
             {
                 jsonObj["m_ChunkedTransfer"] = ComInfo.ChunkedTransfer;
             }
-            if (ComInfo.Version > 2)
+            if (_jsonTemplate != null || ComInfo.Version > 2)
             {
                 jsonObj["m_AssetLoadMode"] = (int)ComInfo.AssetLoadMode;
                 jsonObj["m_UseCrcForCachedBundles"] = ComInfo.UseCrcForCachedBundle; // not a typo
@@ -123,6 +128,16 @@ namespace AddressablesTools.Classes
                 jsonObj["m_ClearOtherCachedVersionsWhenLoaded"] = ComInfo.ClearOtherCachedVersionsWhenLoaded;
             }
 
+            if (_jsonTemplate != null)
+            {
+                JsonObject result = _jsonTemplate.DeepClone().AsObject();
+                foreach (string name in result.Select(pair => pair.Key).ToArray())
+                {
+                    if (jsonObj.ContainsKey(name))
+                        result[name] = jsonObj[name]?.DeepClone();
+                }
+                return result.ToJsonString(options);
+            }
             return JsonSerializer.Serialize(jsonObj, options);
         }
 
@@ -131,7 +146,7 @@ namespace AddressablesTools.Classes
             uint hashOffset = new Hash128(Hash).Write(writer);
             uint bundleNameOffset = writer.WriteEncodedString(BundleName, '_');
             uint crc = Crc;
-            uint bundleSize = (uint)BundleSize;
+            uint bundleSize = checked((uint)BundleSize);
             uint commonInfoOffset = ComInfo.Write(writer);
 
             Span<byte> bytes = stackalloc byte[20];
@@ -145,9 +160,10 @@ namespace AddressablesTools.Classes
 
         public class CommonInfo
         {
-            public short Timeout { get; set; }
-            public byte RedirectLimit { get; set; }
-            public byte RetryCount { get; set; }
+            public int Timeout { get; set; }
+            public int RedirectLimit { get; set; }
+            public int RetryCount { get; set; }
+            private int _unknownFlags;
             public AssetLoadMode AssetLoadMode { get; set; }
             public bool ChunkedTransfer { get; set; }
             public bool UseCrcForCachedBundle { get; set; }
@@ -164,12 +180,14 @@ namespace AddressablesTools.Classes
 
             internal void Read(CatalogBinaryReader reader, uint offset)
             {
+                reader.ValidateRange(offset, 8);
                 reader.BaseStream.Position = offset;
 
                 short timeout = reader.ReadInt16();
                 byte redirectLimit = reader.ReadByte();
                 byte retryCount = reader.ReadByte();
                 int flags = reader.ReadInt32();
+                _unknownFlags = flags & ~31;
 
                 Timeout = timeout;
                 RedirectLimit = redirectLimit;
@@ -192,7 +210,7 @@ namespace AddressablesTools.Classes
 
             internal uint Write(CatalogBinaryWriter writer)
             {
-                int flags = 0;
+                int flags = _unknownFlags;
                 flags |= ((int)AssetLoadMode) & 1;
                 flags |= (ChunkedTransfer ? 1 : 0) << 1;
                 flags |= (UseCrcForCachedBundle ? 1 : 0) << 2;
@@ -200,9 +218,9 @@ namespace AddressablesTools.Classes
                 flags |= (ClearOtherCachedVersionsWhenLoaded ? 1 : 0) << 4;
 
                 Span<byte> data = stackalloc byte[8];
-                BinaryPrimitives.WriteInt16LittleEndian(data, Timeout);
-                data[2] = RedirectLimit;
-                data[3] = RetryCount;
+                BinaryPrimitives.WriteInt16LittleEndian(data, (short)Math.Clamp(Timeout, 0, short.MaxValue));
+                data[2] = (byte)(RedirectLimit < 0 ? 32 : Math.Clamp(RedirectLimit, 0, 128));
+                data[3] = (byte)Math.Clamp(RetryCount, 0, 128);
                 BinaryPrimitives.WriteInt32LittleEndian(data[4..], flags);
                 return writer.WriteWithCache(data);
             }
