@@ -2,12 +2,22 @@ A Unityless way to read and write addressables.
 
 Work in progress.
 
-Nightly links:
+Downloads:
 
-- https://nightly.link/nesrak1/AddressablesTools/workflows/build-windows/master/addrtool-example-windows.zip
-- https://nightly.link/nesrak1/AddressablesTools/workflows/build-ubuntu/master/addrtool-example-ubuntu.zip
+- https://github.com/snowyegret23/AddressablesTools/releases
 
-Nuget link: https://www.nuget.org/packages/AssetsTools.NET.Addressables
+Each push to master publishes a release tagged with the first 12 characters of
+the triggering commit hash, after Windows x64 and Linux x64 builds and CLI smoke
+tests pass. The "Release commit" workflow can also be run manually on master.
+Already published releases are left unchanged when a workflow is rerun.
+
+Both platforms provide framework-dependent and self-contained .NET 8 packages.
+Choose self-contained to run without installing .NET. Extract the entire archive
+and run Example.exe on Windows or ./Example on Linux. Framework-dependent builds
+require the .NET 8 x64 runtime. Every package also includes AddressablesTools.dll
+and its dependencies. Linux packages use tar.gz to preserve executable permissions.
+
+Upstream NuGet package: https://www.nuget.org/packages/AssetsTools.NET.Addressables
 
 Supported catalog formats:
 
